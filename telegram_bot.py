@@ -28,10 +28,10 @@ load_dotenv()
 # ============================================
 
 # For Render: Set DATA_DIR to your disk mount path (e.g., /var/data)
-# Locally: defaults to current directory
+# Only data.json goes there - whitelist.xlsx stays in repo
 DATA_DIR = os.getenv("DATA_DIR", ".")
 DATA_FILE = os.path.join(DATA_DIR, "data.json")
-WHITELIST_EXCEL = os.path.join(DATA_DIR, "data", "whitelist.xlsx")
+WHITELIST_EXCEL = "data/whitelist.xlsx"  # Always from repo
 
 def load_whitelist_from_excel() -> set:
     """Load whitelisted usernames from Excel file"""
