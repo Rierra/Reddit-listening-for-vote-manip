@@ -27,8 +27,11 @@ load_dotenv()
 # DATA MANAGEMENT
 # ============================================
 
-DATA_FILE = "data.json"
-WHITELIST_EXCEL = "data/whitelist.xlsx"
+# For Render: Set DATA_DIR to your disk mount path (e.g., /var/data)
+# Locally: defaults to current directory
+DATA_DIR = os.getenv("DATA_DIR", ".")
+DATA_FILE = os.path.join(DATA_DIR, "data.json")
+WHITELIST_EXCEL = os.path.join(DATA_DIR, "data", "whitelist.xlsx")
 
 def load_whitelist_from_excel() -> set:
     """Load whitelisted usernames from Excel file"""
@@ -271,16 +274,12 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = load_data()
     reset_daily_stats_if_needed(data)
     
-    api = UpvoteBizAPI()
-    balance = api.get_balance()
-    
     running = "🟢 Running" if (scanner_instance and scanner_instance.running) else "🔴 Stopped"
     excel_whitelist = load_whitelist_from_excel()
     
     msg = (
         f"=== Downvoter Status ===\n\n"
-        f"Scanner: {running}\n"
-        f"Balance: ${balance.get('balance', 'N/A')}\n\n"
+        f"Scanner: {running}\n\n"
         f"--- Config ---\n"
         f"Posts monitored: {len(data.get('posts', []))}\n"
         f"Whitelisted: {len(excel_whitelist)}\n"
@@ -710,8 +709,10 @@ def main():
     
     print("[OK] Bot started! Press Ctrl+C to stop.")
     print("[i] Add the bot to a group and use /start")
+    print(f"[i] Data directory: {DATA_DIR}")
     
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+    # drop_pending_updates=True prevents conflict errors when restarting
+    app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 
 if __name__ == "__main__":
