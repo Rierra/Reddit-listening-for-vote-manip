@@ -182,7 +182,8 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
          InlineKeyboardButton("List Posts", callback_data="list_posts")],
         [InlineKeyboardButton("Start Monitor", callback_data="start_mon"),
          InlineKeyboardButton("Stop Monitor", callback_data="stop_mon")],
-        [InlineKeyboardButton("Status", callback_data="status")]
+        [InlineKeyboardButton("Status", callback_data="status"),
+         InlineKeyboardButton("Whitelist", callback_data="show_whitelist")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
@@ -194,7 +195,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/status - Show stats\n"
         "/start_monitor - Start scanning\n"
         "/stop_monitor - Stop scanning\n"
-        "/downvote <url> - Instant downvote\n\n"
+        "/downvote <url> - Instant downvote\n/whitelist <user> - Add to whitelist\n/unwhitelist <user> - Remove\n\n"
         "Or use the buttons below:",
         reply_markup=reply_markup
     )
