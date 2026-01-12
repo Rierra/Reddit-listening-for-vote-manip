@@ -113,7 +113,10 @@ class RedditScanner:
             self._extract_comments(data, comments)
             return comments
             
-        except (requests.ConnectionError, requests.Timeout) as e:\r\n            print(f"[WARN] Connection issue with {clean_url}: {e.__class__.__name__}")\r\n            return []\r\n        except Exception as e:
+        except (requests.ConnectionError, requests.Timeout) as e:
+            print(f"[WARN] Connection issue with {clean_url}: {e.__class__.__name__}")
+            return []
+        except Exception as e:
             print(f"[ERROR] Failed to fetch comments from {post_url}: {e}")
             return []
     
