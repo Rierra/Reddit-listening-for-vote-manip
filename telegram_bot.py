@@ -124,6 +124,7 @@ class BackgroundScanner:
                 reset_daily_stats_if_needed(data)
                 
                 posts = data.get("posts", [])
+                print(f"[SCAN] Scanning {len(posts)} posts, whitelist has {len(whitelist)} users")
                 # Combined whitelist from Excel + bot-added users
                 whitelist = get_full_whitelist()
                 settings = data.get("settings", {})
@@ -137,6 +138,7 @@ class BackgroundScanner:
                         break
                     
                     new_comments = self.scanner.get_new_comments(post_url, whitelist)
+                    print(f"[SCAN] Checked {len(self.scanner.processed_comments)} processed, found {len(new_comments)} new")
                     
                     for comment in new_comments:
                         if not self.running:
