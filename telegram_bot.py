@@ -8,6 +8,7 @@ import os
 import json
 import threading
 import time
+import sys
 import re
 from datetime import datetime, date
 from typing import Optional
@@ -124,9 +125,9 @@ class BackgroundScanner:
                 reset_daily_stats_if_needed(data)
                 
                 posts = data.get("posts", [])
-                print(f"[SCAN] Scanning {len(posts)} posts, whitelist has {len(whitelist)} users")
                 # Combined whitelist from Excel + bot-added users
                 whitelist = get_full_whitelist()
+                print(f"[SCAN] Scanning {len(posts)} posts, whitelist has {len(whitelist)} users"); sys.stdout.flush()
                 settings = data.get("settings", {})
                 interval = settings.get("scan_interval", 60)
                 downvotes = settings.get("downvotes_per_comment", 30)
@@ -138,7 +139,7 @@ class BackgroundScanner:
                         break
                     
                     new_comments = self.scanner.get_new_comments(post_url, whitelist)
-                    print(f"[SCAN] Checked {len(self.scanner.processed_comments)} processed, found {len(new_comments)} new")
+                    print(f"[SCAN] Found {len(new_comments)} new comments to downvote"); sys.stdout.flush()
                     
                     for comment in new_comments:
                         if not self.running:
