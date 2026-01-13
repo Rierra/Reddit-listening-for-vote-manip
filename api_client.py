@@ -36,22 +36,29 @@ class UpvoteBizAPI:
         url = f"{self.api_url}?{'&'.join(query_parts)}"
         
         try:
+            # Use 'curl' (not curl.exe) for cross-platform compatibility
             result = subprocess.run(
-                ['curl.exe', '-s', '-A', self.user_agent, url],
+                ['curl', '-s', '-A', self.user_agent, url],
                 capture_output=True,
                 text=True,
                 timeout=30
             )
             
             if result.returncode != 0:
+                print(f"[API] curl failed: {result.stderr}")
                 return {"error": f"curl failed: {result.stderr}"}
             
-            return json.loads(result.stdout)
+            response = json.loads(result.stdout)
+            print(f"[API] Response: {response}")
+            return response
         except subprocess.TimeoutExpired:
+            print("[API] Request timed out")
             return {"error": "Request timed out"}
         except json.JSONDecodeError as e:
+            print(f"[API] Invalid JSON: {result.stdout[:200]}")
             return {"error": f"Invalid JSON: {e}", "raw": result.stdout[:500]}
         except Exception as e:
+            print(f"[API] Error: {e}")
             return {"error": str(e)}
     
     def get_services(self) -> List[Dict[str, Any]]:
