@@ -239,10 +239,13 @@ async def cmd_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
             import asyncio
             try:
                 loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    asyncio.create_task(context.bot.send_message(chat_id=chat_id, text=text))
-            except:
-                pass
+                future = asyncio.run_coroutine_threadsafe(
+                    context.bot.send_message(chat_id=chat_id, text=text),
+                    loop
+                )
+                future.result(timeout=10)
+            except Exception as e:
+                print(f"[TELEGRAM] Failed to send message: {e}")
         
         scanner_instance = BackgroundScanner(sync_send)
         scanner_instance.start(update.message.chat_id)
@@ -328,13 +331,15 @@ async def cmd_start_monitor(update: Update, context: ContextTypes.DEFAULT_TYPE):
     def sync_send(chat_id, text):
         import asyncio
         try:
+            # Use run_coroutine_threadsafe to send from background thread
             loop = asyncio.get_event_loop()
-            if loop.is_running():
-                asyncio.create_task(context.bot.send_message(chat_id=chat_id, text=text))
-            else:
-                loop.run_until_complete(context.bot.send_message(chat_id=chat_id, text=text))
-        except:
-            pass
+            future = asyncio.run_coroutine_threadsafe(
+                context.bot.send_message(chat_id=chat_id, text=text),
+                loop
+            )
+            future.result(timeout=10)  # Wait up to 10 seconds
+        except Exception as e:
+            print(f"[TELEGRAM] Failed to send message: {e}")
     
     scanner_instance = BackgroundScanner(sync_send)
     scanner_instance.start(update.message.chat_id)
@@ -642,10 +647,13 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             import asyncio
             try:
                 loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    asyncio.create_task(context.bot.send_message(chat_id=chat_id, text=text))
-            except:
-                pass
+                future = asyncio.run_coroutine_threadsafe(
+                    context.bot.send_message(chat_id=chat_id, text=text),
+                    loop
+                )
+                future.result(timeout=10)
+            except Exception as e:
+                print(f"[TELEGRAM] Failed to send message: {e}")
         
         scanner_instance = BackgroundScanner(sync_send)
         scanner_instance.start(query.message.chat_id)
