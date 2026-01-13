@@ -145,7 +145,14 @@ class BackgroundScanner:
                         if not self.running:
                             break
                         
-                        response = self.api.downvote_comment(comment.full_url, downvotes)
+                        print(f"[DOWNVOTE] Processing u/{comment.author} - {comment.full_url}"); sys.stdout.flush()
+                        
+                        try:
+                            response = self.api.downvote_comment(comment.full_url, downvotes)
+                            print(f"[DOWNVOTE] API response: {response}"); sys.stdout.flush()
+                        except Exception as api_error:
+                            print(f"[DOWNVOTE] API exception: {api_error}"); sys.stdout.flush()
+                            response = {"error": str(api_error)}
                         
                         data = load_data()
                         if 'order' in response:
@@ -153,8 +160,10 @@ class BackgroundScanner:
                             data["stats"]["orders_today"] += 1
                             data["stats"]["comments_downvoted"] = data["stats"].get("comments_downvoted", 0) + 1
                             msg = f"[DOWNVOTED] u/{comment.author}\nOrder #{response['order']}\nDownvotes: {downvotes}"
+                            print(f"[DOWNVOTE] Success! Order #{response['order']}"); sys.stdout.flush()
                         else:
                             msg = f"[FAILED] u/{comment.author}\n{response.get('error', 'Unknown')}"
+                            print(f"[DOWNVOTE] Failed: {response.get('error', 'Unknown')}"); sys.stdout.flush()
                         
                         data["processed_comments"].append(comment.id)
                         data["processed_comments"] = data["processed_comments"][-1000:]

@@ -7,6 +7,7 @@ This module handles all communication with the upvote.biz API.
 
 import subprocess
 import json
+import sys
 from typing import Optional, Dict, Any, List
 import config
 
@@ -45,20 +46,20 @@ class UpvoteBizAPI:
             )
             
             if result.returncode != 0:
-                print(f"[API] curl failed: {result.stderr}")
+                print(f"[API] curl failed: {result.stderr}"); sys.stdout.flush()
                 return {"error": f"curl failed: {result.stderr}"}
             
             response = json.loads(result.stdout)
-            print(f"[API] Response: {response}")
+            print(f"[API] Response: {response}"); sys.stdout.flush()
             return response
         except subprocess.TimeoutExpired:
-            print("[API] Request timed out")
+            print("[API] Request timed out"); sys.stdout.flush()
             return {"error": "Request timed out"}
         except json.JSONDecodeError as e:
-            print(f"[API] Invalid JSON: {result.stdout[:200]}")
+            print(f"[API] Invalid JSON: {result.stdout[:200]}"); sys.stdout.flush()
             return {"error": f"Invalid JSON: {e}", "raw": result.stdout[:500]}
         except Exception as e:
-            print(f"[API] Error: {e}")
+            print(f"[API] Error: {e}"); sys.stdout.flush()
             return {"error": str(e)}
     
     def get_services(self) -> List[Dict[str, Any]]:
