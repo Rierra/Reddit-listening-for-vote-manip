@@ -8,6 +8,7 @@ This module handles all communication with the upvote.biz API.
 import subprocess
 import json
 import sys
+from urllib.parse import urlencode
 from typing import Optional, Dict, Any, List
 import config
 
@@ -22,7 +23,7 @@ class UpvoteBizAPI:
     
     def _make_request(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Make a request to the API using curl.exe
+        Make a request to the API using curl
         
         Args:
             params: Dictionary of parameters to send
@@ -32,14 +33,15 @@ class UpvoteBizAPI:
         """
         params['key'] = self.api_key
         
-        # Build query string
-        query_parts = [f"{k}={v}" for k, v in params.items()]
-        url = f"{self.api_url}?{'&'.join(query_parts)}"
+        # Build query string with proper URL encoding (like PHP's urlencode)
+        url = f"{self.api_url}?{urlencode(params)}"
+        
+        print(f"[API] Requesting: {self.api_url}?action={params.get('action')}&..."); sys.stdout.flush()
         
         try:
-            # Use 'curl' (not curl.exe) for cross-platform compatibility
+            # Use 'curl' with -L to follow redirects (like PHP CURLOPT_FOLLOWLOCATION)
             result = subprocess.run(
-                ['curl', '-s', '-A', self.user_agent, url],
+                ['curl', '-s', '-L', '-A', self.user_agent, url],
                 capture_output=True,
                 text=True,
                 timeout=30
