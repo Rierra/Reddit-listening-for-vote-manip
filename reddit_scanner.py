@@ -132,6 +132,9 @@ class RedditScanner:
         Returns:
             List of new comments that should be downvoted
         """
+        # Reload processed comments from file (allows clearing the file while running)
+        self._load_processed()
+        
         whitelist_lower = {u.lower() for u in whitelist}
         comments = self.get_comments(post_url)
         
