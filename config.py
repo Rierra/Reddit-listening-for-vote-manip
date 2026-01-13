@@ -13,6 +13,10 @@ load_dotenv()
 API_URL = "http://upvote.biz/api/v1"
 API_KEY = os.getenv("UPVOTE_API_KEY", "")
 
+# Proxy configuration (to bypass Cloudflare)
+# Format: username:password@proxy.froxy.com:9000
+PROXY_URL = os.getenv("PROXY_URL", "")
+
 # Service ID for Reddit Comment Downvotes
 # ID 8 = "COMMENT DOWNVOTES - up to 24 hours old comments" ($10.00 per order, min 3)
 DOWNVOTE_SERVICE_ID = 8

@@ -39,9 +39,18 @@ class UpvoteBizAPI:
         print(f"[API] Requesting: {self.api_url}?action={params.get('action')}&..."); sys.stdout.flush()
         
         try:
-            # Use 'curl' with -L to follow redirects (like PHP CURLOPT_FOLLOWLOCATION)
+            # Build curl command with optional proxy support
+            curl_cmd = ['curl', '-s', '-L', '-A', self.user_agent]
+            
+            # Add proxy if configured (to bypass Cloudflare)
+            if config.PROXY_URL:
+                curl_cmd.extend(['-x', f'http://{config.PROXY_URL}'])
+                print(f"[API] Using proxy: {config.PROXY_URL.split('@')[1] if '@' in config.PROXY_URL else config.PROXY_URL}"); sys.stdout.flush()
+            
+            curl_cmd.append(url)
+            
             result = subprocess.run(
-                ['curl', '-s', '-L', '-A', self.user_agent, url],
+                curl_cmd,
                 capture_output=True,
                 text=True,
                 timeout=30
