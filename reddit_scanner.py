@@ -102,7 +102,8 @@ class RedditScanner:
         # Convert URL to JSON endpoint
         # Remove trailing slash and query params
         clean_url = post_url.split('?')[0].rstrip('/')
-        json_url = f"{clean_url}.json"
+        # Use sort=new to get newest comments first (critical for old posts)
+        json_url = f"{clean_url}.json?sort=new"
         
         try:
             response = self.session.get(json_url, timeout=30)
