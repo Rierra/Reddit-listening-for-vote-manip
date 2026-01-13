@@ -134,18 +134,23 @@ class RedditScanner:
         whitelist_lower = {u.lower() for u in whitelist}
         comments = self.get_comments(post_url)
         
+        print(f"[DEBUG] Total comments fetched: {len(comments)}")
+        
         new_comments = []
         for comment in comments:
             # Skip if already processed
             if comment.id in self.processed_comments:
+                print(f"[DEBUG] Skipped {comment.author} - already processed")
                 continue
             
             # Skip if author is whitelisted
             if comment.author.lower() in whitelist_lower:
+                print(f"[DEBUG] Skipped {comment.author} - whitelisted")
                 continue
             
             # Skip if comment is too old (>24 hours - API won't work)
             if comment.age_hours > 24:
+                print(f"[DEBUG] Skipped {comment.author} - too old ({comment.age_hours:.1f}h)")
                 continue
             
             new_comments.append(comment)
