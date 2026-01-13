@@ -10,7 +10,7 @@ load_dotenv()
 # ============================================
 # UPVOTE.BIZ API CONFIGURATION
 # ============================================
-API_URL = "https://upvote.biz/api/v1"
+API_URL = "http://upvote.biz/api/v1"
 API_KEY = os.getenv("UPVOTE_API_KEY", "")
 
 # Service ID for Reddit Comment Downvotes
