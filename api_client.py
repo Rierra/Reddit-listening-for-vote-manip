@@ -7,11 +7,20 @@ This module handles all communication with the upvote.biz API.
 
 import json
 import sys
-from urllib.parse import urlencode
+import time
+from urllib.parse import urlencode, urlparse
 from typing import Optional, Dict, Any, List
 import cloudscraper
 import requests
 import config
+
+# Try to import curl_cffi - better Cloudflare bypass
+try:
+    from curl_cffi import requests as cffi_requests
+    CURL_CFFI_AVAILABLE = True
+except ImportError:
+    CURL_CFFI_AVAILABLE = False
+    print("[API] curl_cffi not available - using cloudscraper only")
 
 
 class UpvoteBizAPI:
@@ -20,27 +29,38 @@ class UpvoteBizAPI:
     def __init__(self, api_url: str = None, api_key: str = None):
         self.api_url = api_url or config.API_URL
         self.api_key = api_key or config.API_KEY
+        self.session_established = False
+        self.base_domain = urlparse(self.api_url).netloc
         
-        # Use cloudscraper to bypass Cloudflare protection
-        self.session = cloudscraper.create_scraper(
-            browser={
-                'browser': 'chrome',
-                'platform': 'windows',
-                'desktop': True
-            }
-        )
+        # Try curl_cffi first (better Cloudflare bypass), fallback to cloudscraper
+        if CURL_CFFI_AVAILABLE:
+            try:
+                # curl_cffi uses impersonate to mimic real browsers
+                self.session = cffi_requests.Session(impersonate="chrome110")
+                self.use_cffi = True
+                print(f"[API] Using curl_cffi for Cloudflare bypass (better success rate)"); sys.stdout.flush()
+            except Exception as e:
+                print(f"[API] curl_cffi init failed, using cloudscraper: {e}"); sys.stdout.flush()
+                self.session = cloudscraper.create_scraper(
+                    browser={'browser': 'chrome', 'platform': 'windows', 'desktop': True}
+                )
+                self.use_cffi = False
+        else:
+            self.session = cloudscraper.create_scraper(
+                browser={'browser': 'chrome', 'platform': 'windows', 'desktop': True}
+            )
+            self.use_cffi = False
+            print(f"[API] Using cloudscraper for Cloudflare bypass"); sys.stdout.flush()
         
-        # Set realistic browser headers (cloudscraper will add its own CF challenge handling headers)
+        # Set realistic browser headers
         self.session.headers.update({
             'Accept': 'application/json, text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
             'Accept-Language': 'en-US,en;q=0.9',
             'Connection': 'keep-alive',
         })
         
-        # Configure proxy if available (OPTIONAL - cloudscraper should handle Cloudflare without proxy)
-        # Only set PROXY_URL if you need additional proxy protection
+        # Configure proxy if available (OPTIONAL)
         if config.PROXY_URL and config.PROXY_URL.strip():
-            # PROXY_URL format: username:password@host:port or host:port
             if config.PROXY_URL.startswith(('http://', 'https://')):
                 proxy_url = config.PROXY_URL
             else:
@@ -52,7 +72,27 @@ class UpvoteBizAPI:
             }
             print(f"[API] Using proxy for upvote.biz requests"); sys.stdout.flush()
         else:
-            print(f"[API] No proxy configured - using cloudscraper directly (should bypass Cloudflare)"); sys.stdout.flush()
+            print(f"[API] No proxy configured"); sys.stdout.flush()
+    
+    def _establish_session(self):
+        """Visit the homepage first to establish a Cloudflare session"""
+        if self.session_established:
+            return True
+        
+        try:
+            # Visit the main site first to establish Cloudflare session
+            homepage_url = f"https://{self.base_domain}" if not self.base_domain.startswith('http') else f"http://{self.base_domain}"
+            print(f"[API] Establishing Cloudflare session..."); sys.stdout.flush()
+            response = self.session.get(homepage_url, timeout=15)
+            # Don't check status - just establish session/cookies
+            time.sleep(1)  # Small delay to seem more human
+            self.session_established = True
+            print(f"[API] Session established"); sys.stdout.flush()
+            return True
+        except Exception as e:
+            print(f"[API] Failed to establish session (continuing anyway): {e}"); sys.stdout.flush()
+            self.session_established = True  # Mark as attempted
+            return False
     
     def _make_request(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -66,14 +106,50 @@ class UpvoteBizAPI:
         """
         params['key'] = self.api_key
         
+        # Establish session first (helps with Cloudflare)
+        self._establish_session()
+        
         # Build query string with proper URL encoding (like PHP's urlencode)
         url = f"{self.api_url}?{urlencode(params)}"
         
         print(f"[API] Requesting: {self.api_url}?action={params.get('action')}&..."); sys.stdout.flush()
         
+        # Retry logic for Cloudflare blocks
+        max_retries = 2
+        response = None
+        last_exception = None
+        
+        for attempt in range(max_retries):
+            try:
+                response = self.session.get(url, timeout=30, allow_redirects=True)
+                
+                # If successful (not 403), break retry loop
+                if response.status_code != 403:
+                    break
+                
+                # If 403 and not last attempt, wait and retry
+                if attempt < max_retries - 1:
+                    print(f"[API] 403 received, retrying... (attempt {attempt + 1}/{max_retries})"); sys.stdout.flush()
+                    time.sleep(2)
+                    # Re-establish session for retry
+                    self.session_established = False
+                    self._establish_session()
+                    
+            except Exception as e:
+                last_exception = e
+                if attempt < max_retries - 1:
+                    print(f"[API] Request failed, retrying... (attempt {attempt + 1}/{max_retries}): {e}"); sys.stdout.flush()
+                    time.sleep(2)
+                else:
+                    raise
+        
+        # If we didn't get a response, raise the last exception
+        if response is None and last_exception:
+            raise last_exception
+        if response is None:
+            return {"error": "No response received"}
+        
         try:
-            response = self.session.get(url, timeout=30, allow_redirects=True)
-            
             # Check for 403/Forbidden errors specifically
             if response.status_code == 403:
                 content_type = response.headers.get('Content-Type', '').lower()
