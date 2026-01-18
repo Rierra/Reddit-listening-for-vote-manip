@@ -721,14 +721,14 @@ def main():
             scanner_instance.start()
             print(f"[AUTO] Scanner started - monitoring {len(posts)} post(s)")
             print(f"[AUTO] Notifications will be sent to chat_id: {chat_id}")
-            # Send startup notification
-            try:
-                await application.bot.send_message(
-                    chat_id=chat_id,
-                    text=f"🟢 Bot restarted - scanner auto-started\n\nMonitoring {len(posts)} post(s)"
-                )
-            except Exception as e:
-                print(f"[AUTO] Failed to send startup message: {e}")
+            # Send startup notification (DISABLED)
+            # try:
+            #     await application.bot.send_message(
+            #         chat_id=chat_id,
+            #         text=f"🟢 Bot restarted - scanner auto-started\n\nMonitoring {len(posts)} post(s)"
+            #     )
+            # except Exception as e:
+            #     print(f"[AUTO] Failed to send startup message: {e}")
         else:
             print("[INFO] No posts or chat_id configured - use /add to add posts")
     
