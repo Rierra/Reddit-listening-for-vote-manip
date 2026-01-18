@@ -10,6 +10,7 @@ import sys
 from urllib.parse import urlencode
 from typing import Optional, Dict, Any, List
 import cloudscraper
+import requests
 import config
 
 
@@ -29,11 +30,10 @@ class UpvoteBizAPI:
             }
         )
         
-        # Set realistic browser headers
+        # Set realistic browser headers (cloudscraper will add its own CF challenge handling headers)
         self.session.headers.update({
             'Accept': 'application/json, text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
             'Accept-Language': 'en-US,en;q=0.9',
-            'Accept-Encoding': 'gzip, deflate, br',
             'Connection': 'keep-alive',
         })
         
@@ -72,7 +72,40 @@ class UpvoteBizAPI:
         print(f"[API] Requesting: {self.api_url}?action={params.get('action')}&..."); sys.stdout.flush()
         
         try:
-            response = self.session.get(url, timeout=30)
+            response = self.session.get(url, timeout=30, allow_redirects=True)
+            
+            # Check for 403/Forbidden errors specifically
+            if response.status_code == 403:
+                content_type = response.headers.get('Content-Type', '').lower()
+                response_text = response.text.strip()
+                
+                # Check if it's a Cloudflare block (HTML response)
+                if 'text/html' in content_type or response_text.startswith('<!DOCTYPE') or '<html' in response_text.lower():
+                    print(f"[API] 403 Forbidden - Cloudflare block detected (HTML response)"); sys.stdout.flush()
+                    # Check for specific Cloudflare indicators
+                    if 'cloudflare' in response_text.lower() or 'cf-ray' in response.headers:
+                        return {
+                            "error": "403 Forbidden - Cloudflare protection block. Try using a proxy or contact upvote.biz support.",
+                            "raw": response_text[:500]
+                        }
+                    return {
+                        "error": "403 Forbidden - Received HTML instead of JSON (likely Cloudflare block)",
+                        "raw": response_text[:500]
+                    }
+                else:
+                    # 403 but not HTML - might be API rejecting the request
+                    print(f"[API] 403 Forbidden - API rejected request (non-HTML response)"); sys.stdout.flush()
+                    # Try to parse as JSON error message
+                    try:
+                        error_data = response.json()
+                        return error_data
+                    except:
+                        pass
+                    return {
+                        "error": f"403 Forbidden - API rejected request. Check API key and request parameters. Response: {response_text[:200]}",
+                        "raw": response_text[:500]
+                    }
+            
             response.raise_for_status()
             
             # Check if response is HTML (Cloudflare block) or text error instead of JSON
@@ -114,6 +147,16 @@ class UpvoteBizAPI:
                     "raw": response.text[:500]
                 }
                 
+        except requests.HTTPError as e:
+            # Handle other HTTP errors (4xx, 5xx)
+            response = e.response if hasattr(e, 'response') else None
+            if response:
+                print(f"[API] HTTP {response.status_code} error: {e}"); sys.stdout.flush()
+                return {
+                    "error": f"HTTP {response.status_code}: {str(e)}",
+                    "raw": response.text[:500] if hasattr(response, 'text') else str(e)
+                }
+            return {"error": f"HTTP Error: {str(e)}"}
         except Exception as e:
             error_msg = str(e)
             if 'timeout' in error_msg.lower() or 'timed out' in error_msg.lower():
