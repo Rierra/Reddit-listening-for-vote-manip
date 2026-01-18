@@ -10,6 +10,7 @@ import threading
 import time
 import sys
 import re
+import asyncio
 from datetime import datetime, date
 from typing import Optional
 
@@ -95,19 +96,27 @@ def get_post_id(url: str) -> str:
 class BackgroundScanner:
     """Background thread that scans Reddit posts"""
     
-    def __init__(self, bot_send_message):
+    def __init__(self, bot, loop, chat_id: int):
+        """
+        Initialize scanner with bot instance and event loop.
+        
+        Args:
+            bot: Telegram Bot instance
+            loop: asyncio event loop from main thread
+            chat_id: Telegram chat ID for notifications
+        """
         self.api = UpvoteBizAPI()
         self.scanner = RedditScanner()
         self.running = False
         self.thread: Optional[threading.Thread] = None
-        self.send_message = bot_send_message
-        self.chat_id = None
+        self.bot = bot
+        self.loop = loop
+        self.chat_id = chat_id
     
-    def start(self, chat_id: int):
+    def start(self):
         if self.running:
             return False
         self.running = True
-        self.chat_id = chat_id
         self.thread = threading.Thread(target=self._run_loop, daemon=True)
         self.thread.start()
         return True
@@ -117,6 +126,19 @@ class BackgroundScanner:
         if self.thread:
             self.thread.join(timeout=5)
         return True
+    
+    def _send_telegram(self, text: str):
+        """Send message to Telegram from background thread"""
+        if not self.bot or not self.chat_id or not self.loop:
+            return
+        try:
+            future = asyncio.run_coroutine_threadsafe(
+                self.bot.send_message(chat_id=self.chat_id, text=text),
+                self.loop
+            )
+            future.result(timeout=15)
+        except Exception as e:
+            print(f"[TELEGRAM] Failed to send: {e}"); sys.stdout.flush()
     
     def _run_loop(self):
         while self.running:
@@ -159,25 +181,25 @@ class BackgroundScanner:
                             data["stats"]["total_orders"] += 1
                             data["stats"]["orders_today"] += 1
                             data["stats"]["comments_downvoted"] = data["stats"].get("comments_downvoted", 0) + 1
-                            msg = f"[DOWNVOTED] u/{comment.author}\nOrder #{response['order']}\nDownvotes: {downvotes}"
+                            msg = f"🔻 DOWNVOTED\n\nUser: u/{comment.author}\nDownvotes: {downvotes}\nOrder: #{response['order']}\n\n🔗 {comment.full_url}"
                             print(f"[DOWNVOTE] Success! Order #{response['order']}"); sys.stdout.flush()
+                            self._send_telegram(msg)
                         else:
-                            msg = f"[FAILED] u/{comment.author}\n{response.get('error', 'Unknown')}"
+                            msg = f"❌ FAILED\n\nUser: u/{comment.author}\nError: {response.get('error', 'Unknown')}"
                             print(f"[DOWNVOTE] Failed: {response.get('error', 'Unknown')}"); sys.stdout.flush()
+                            self._send_telegram(msg)
                         
                         data["processed_comments"].append(comment.id)
                         data["processed_comments"] = data["processed_comments"][-1000:]
                         save_data(data)
-                        
-                        if self.send_message and self.chat_id:
-                            self.send_message(self.chat_id, msg)
                         
                         time.sleep(2)
                 
                 time.sleep(interval)
                 
             except Exception as e:
-                print(f"[Scanner Error] {e}")
+                print(f"[Scanner Error] {e}"); sys.stdout.flush()
+                time.sleep(30)
                 time.sleep(30)
 
 # Global scanner instance
@@ -230,28 +252,18 @@ async def cmd_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     data["posts"].append(url)
+    data["control_chat_id"] = update.message.chat_id  # Save for auto-start
     save_data(data)
     
     # Auto-start scanner if not running
     global scanner_instance
     if not scanner_instance or not scanner_instance.running:
-        def sync_send(chat_id, text):
-            import asyncio
-            try:
-                loop = asyncio.get_event_loop()
-                future = asyncio.run_coroutine_threadsafe(
-                    context.bot.send_message(chat_id=chat_id, text=text),
-                    loop
-                )
-                future.result(timeout=10)
-            except Exception as e:
-                print(f"[TELEGRAM] Failed to send message: {e}")
-        
-        scanner_instance = BackgroundScanner(sync_send)
-        scanner_instance.start(update.message.chat_id)
-        await update.message.reply_text(f"Added post\n🟢 Scanner started - monitoring {len(data['posts'])} post(s)")
+        loop = asyncio.get_running_loop()
+        scanner_instance = BackgroundScanner(context.bot, loop, update.message.chat_id)
+        scanner_instance.start()
+        await update.message.reply_text(f"✅ Added post\n🟢 Scanner started - monitoring {len(data['posts'])} post(s)")
     else:
-        await update.message.reply_text(f"Added post\nNow monitoring {len(data['posts'])} post(s)")
+        await update.message.reply_text(f"✅ Added post\nNow monitoring {len(data['posts'])} post(s)")
 
 async def cmd_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /list command - show posts with remove buttons"""
@@ -328,21 +340,15 @@ async def cmd_start_monitor(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Error: No posts to monitor! Add some with /add first")
         return
     
-    def sync_send(chat_id, text):
-        import asyncio
-        try:
-            # Use run_coroutine_threadsafe to send from background thread
-            loop = asyncio.get_event_loop()
-            future = asyncio.run_coroutine_threadsafe(
-                context.bot.send_message(chat_id=chat_id, text=text),
-                loop
-            )
-            future.result(timeout=10)  # Wait up to 10 seconds
-        except Exception as e:
-            print(f"[TELEGRAM] Failed to send message: {e}")
+    # Save chat_id for auto-start on next run
+    data["control_chat_id"] = update.message.chat_id
+    save_data(data)
     
-    scanner_instance = BackgroundScanner(sync_send)
-    scanner_instance.start(update.message.chat_id)
+    # Get the running event loop
+    loop = asyncio.get_running_loop()
+    
+    scanner_instance = BackgroundScanner(context.bot, loop, update.message.chat_id)
+    scanner_instance.start()
     
     keyboard = [[InlineKeyboardButton("Stop Monitor", callback_data="stop_mon")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -643,20 +649,13 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text("Error: No posts to monitor! Add some with /add first")
             return
         
-        def sync_send(chat_id, text):
-            import asyncio
-            try:
-                loop = asyncio.get_event_loop()
-                future = asyncio.run_coroutine_threadsafe(
-                    context.bot.send_message(chat_id=chat_id, text=text),
-                    loop
-                )
-                future.result(timeout=10)
-            except Exception as e:
-                print(f"[TELEGRAM] Failed to send message: {e}")
+        # Save chat_id for auto-start
+        data["control_chat_id"] = query.message.chat_id
+        save_data(data)
         
-        scanner_instance = BackgroundScanner(sync_send)
-        scanner_instance.start(query.message.chat_id)
+        loop = asyncio.get_running_loop()
+        scanner_instance = BackgroundScanner(context.bot, loop, query.message.chat_id)
+        scanner_instance.start()
         
         keyboard = [[InlineKeyboardButton("Stop Monitor", callback_data="stop_mon")]]
         await query.edit_message_text(
@@ -690,6 +689,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     """Start the bot"""
+    global scanner_instance
+    
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     
     if not token or token == "your_bot_token_here":
@@ -707,7 +708,31 @@ def main():
     print("Reddit Comment Downvoter - Telegram Bot")
     print("=" * 50)
     
-    app = Application.builder().token(token).build()
+    async def post_init(application):
+        """Called after bot starts - auto-start scanner if configured"""
+        global scanner_instance
+        data = load_data()
+        chat_id = data.get("control_chat_id")
+        posts = data.get("posts", [])
+        
+        if posts and chat_id:
+            loop = asyncio.get_running_loop()
+            scanner_instance = BackgroundScanner(application.bot, loop, chat_id)
+            scanner_instance.start()
+            print(f"[AUTO] Scanner started - monitoring {len(posts)} post(s)")
+            print(f"[AUTO] Notifications will be sent to chat_id: {chat_id}")
+            # Send startup notification
+            try:
+                await application.bot.send_message(
+                    chat_id=chat_id,
+                    text=f"🟢 Bot restarted - scanner auto-started\n\nMonitoring {len(posts)} post(s)"
+                )
+            except Exception as e:
+                print(f"[AUTO] Failed to send startup message: {e}")
+        else:
+            print("[INFO] No posts or chat_id configured - use /add to add posts")
+    
+    app = Application.builder().token(token).post_init(post_init).build()
     
     # Add command handlers
     app.add_handler(CommandHandler("start", cmd_start))
@@ -729,7 +754,6 @@ def main():
     app.add_handler(CallbackQueryHandler(button_callback))
     
     print("[OK] Bot started! Press Ctrl+C to stop.")
-    print("[i] Add the bot to a group and use /start")
     print(f"[i] Data directory: {DATA_DIR}")
     
     # drop_pending_updates=True prevents conflict errors when restarting

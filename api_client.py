@@ -1,29 +1,62 @@
 """
 upvote.biz API Client
 
-Uses curl.exe subprocess to bypass Cloudflare protection.
+Uses cloudscraper to bypass Cloudflare protection.
 This module handles all communication with the upvote.biz API.
 """
 
-import subprocess
 import json
 import sys
 from urllib.parse import urlencode
 from typing import Optional, Dict, Any, List
+import cloudscraper
 import config
 
 
 class UpvoteBizAPI:
-    """Client for interacting with the upvote.biz API via curl"""
+    """Client for interacting with the upvote.biz API via cloudscraper"""
     
     def __init__(self, api_url: str = None, api_key: str = None):
         self.api_url = api_url or config.API_URL
         self.api_key = api_key or config.API_KEY
-        self.user_agent = 'API (compatible; MSIE 5.01; Windows NT 5.0)'
+        
+        # Use cloudscraper to bypass Cloudflare protection
+        self.session = cloudscraper.create_scraper(
+            browser={
+                'browser': 'chrome',
+                'platform': 'windows',
+                'desktop': True
+            }
+        )
+        
+        # Set realistic browser headers
+        self.session.headers.update({
+            'Accept': 'application/json, text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive',
+        })
+        
+        # Configure proxy if available (OPTIONAL - cloudscraper should handle Cloudflare without proxy)
+        # Only set PROXY_URL if you need additional proxy protection
+        if config.PROXY_URL and config.PROXY_URL.strip():
+            # PROXY_URL format: username:password@host:port or host:port
+            if config.PROXY_URL.startswith(('http://', 'https://')):
+                proxy_url = config.PROXY_URL
+            else:
+                proxy_url = f"http://{config.PROXY_URL}"
+            
+            self.session.proxies = {
+                'http': proxy_url,
+                'https': proxy_url
+            }
+            print(f"[API] Using proxy for upvote.biz requests"); sys.stdout.flush()
+        else:
+            print(f"[API] No proxy configured - using cloudscraper directly (should bypass Cloudflare)"); sys.stdout.flush()
     
     def _make_request(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Make a request to the API using curl
+        Make a request to the API using cloudscraper
         
         Args:
             params: Dictionary of parameters to send
@@ -39,39 +72,59 @@ class UpvoteBizAPI:
         print(f"[API] Requesting: {self.api_url}?action={params.get('action')}&..."); sys.stdout.flush()
         
         try:
-            # Build curl command with optional proxy support
-            curl_cmd = ['curl', '-s', '-L', '-A', self.user_agent]
+            response = self.session.get(url, timeout=30)
+            response.raise_for_status()
             
-            # Add proxy if configured (to bypass Cloudflare)
-            if config.PROXY_URL:
-                curl_cmd.extend(['-x', f'http://{config.PROXY_URL}'])
-                print(f"[API] Using proxy: {config.PROXY_URL.split('@')[1] if '@' in config.PROXY_URL else config.PROXY_URL}"); sys.stdout.flush()
+            # Check if response is HTML (Cloudflare block) or text error instead of JSON
+            content_type = response.headers.get('Content-Type', '').lower()
+            response_text = response.text.strip()
             
-            curl_cmd.append(url)
+            # Check for proxy errors (happens before Cloudflare)
+            if 'access denied' in response_text.lower() or 'ip is not in the whitelist' in response_text.lower():
+                print(f"[API] Proxy access denied - proxy IP not whitelisted"); sys.stdout.flush()
+                return {
+                    "error": "Proxy access denied - IP not whitelisted. Remove PROXY_URL to use cloudscraper without proxy.",
+                    "raw": response_text[:500]
+                }
             
-            result = subprocess.run(
-                curl_cmd,
-                capture_output=True,
-                text=True,
-                timeout=30
-            )
+            # Check if response is HTML (Cloudflare block) instead of JSON
+            if 'text/html' in content_type or response_text.startswith('<!DOCTYPE'):
+                # Likely a Cloudflare block page
+                print(f"[API] Cloudflare block detected - received HTML instead of JSON"); sys.stdout.flush()
+                # Check for specific Cloudflare indicators
+                if 'cloudflare' in response_text.lower() or 'cf-ray' in response.headers:
+                    return {
+                        "error": "Cloudflare protection block - cloudscraper should handle this, check if proxy is interfering",
+                        "raw": response_text[:500]
+                    }
+                return {
+                    "error": "Received HTML response instead of JSON",
+                    "raw": response_text[:500]
+                }
             
-            if result.returncode != 0:
-                print(f"[API] curl failed: {result.stderr}"); sys.stdout.flush()
-                return {"error": f"curl failed: {result.stderr}"}
-            
-            response = json.loads(result.stdout)
-            print(f"[API] Response: {response}"); sys.stdout.flush()
-            return response
-        except subprocess.TimeoutExpired:
-            print("[API] Request timed out"); sys.stdout.flush()
-            return {"error": "Request timed out"}
-        except json.JSONDecodeError as e:
-            print(f"[API] Invalid JSON: {result.stdout[:200]}"); sys.stdout.flush()
-            return {"error": f"Invalid JSON: {e}", "raw": result.stdout[:500]}
+            # Try to parse as JSON
+            try:
+                data = response.json()
+                print(f"[API] Response: {data}"); sys.stdout.flush()
+                return data
+            except json.JSONDecodeError as e:
+                print(f"[API] Invalid JSON response: {e}"); sys.stdout.flush()
+                return {
+                    "error": f"Invalid JSON: {e}",
+                    "raw": response.text[:500]
+                }
+                
         except Exception as e:
-            print(f"[API] Error: {e}"); sys.stdout.flush()
-            return {"error": str(e)}
+            error_msg = str(e)
+            if 'timeout' in error_msg.lower() or 'timed out' in error_msg.lower():
+                print(f"[API] Request timed out"); sys.stdout.flush()
+                return {"error": "Request timed out"}
+            elif 'cloudflare' in error_msg.lower():
+                print(f"[API] Cloudflare block: {error_msg}"); sys.stdout.flush()
+                return {"error": f"Cloudflare block: {error_msg}"}
+            else:
+                print(f"[API] Error: {error_msg}"); sys.stdout.flush()
+                return {"error": error_msg}
     
     def get_services(self) -> List[Dict[str, Any]]:
         """Get all available services from the API."""
