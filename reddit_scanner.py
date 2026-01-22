@@ -45,6 +45,16 @@ class RedditScanner:
             'Accept-Encoding': 'gzip, deflate, br',
             'Connection': 'keep-alive',
         })
+        
+        # Configure proxy if set (for bypassing Reddit's VPS/datacenter IP blocking)
+        if config.PROXY_URL:
+            proxy_url = f"http://{config.PROXY_URL}"
+            self.session.proxies = {
+                'http': proxy_url,
+                'https': proxy_url,
+            }
+            print(f"[INFO] Reddit scanner using proxy: {config.PROXY_URL.split('@')[1] if '@' in config.PROXY_URL else config.PROXY_URL}")
+        
         self.processed_comments: Set[str] = set()
         self._load_processed()
     
