@@ -4,4 +4,3 @@ pandas
 openpyxl
 requests
 cloudscraper
-curl-cffi
