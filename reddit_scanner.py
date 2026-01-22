@@ -3,13 +3,12 @@ Reddit Scanner Module
 
 Monitors Reddit posts for new comments using the public JSON API.
 No login required - just appends .json to Reddit URLs.
-Uses cloudscraper to bypass Cloudflare protection.
 """
 
+import requests
 import time
 from typing import List, Dict, Set, Optional
 from dataclasses import dataclass
-import cloudscraper
 import config
 
 
@@ -37,42 +36,15 @@ class RedditScanner:
     """Scans Reddit posts for new comments"""
     
     def __init__(self):
-        # Use cloudscraper to bypass Cloudflare protection
-        self.session = cloudscraper.create_scraper(
-            browser={
-                'browser': 'chrome',
-                'platform': 'windows',
-                'desktop': True
-            }
-        )
-        
-        # Set realistic browser headers
+        self.session = requests.Session()
+        # Full browser User-Agent to bypass Reddit's datacenter IP blocking
         self.session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Accept': 'application/json, text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5',
+            'Accept-Language': 'en-US,en;q=0.9',
             'Accept-Encoding': 'gzip, deflate, br',
             'Connection': 'keep-alive',
-            'Upgrade-Insecure-Requests': '1',
         })
-        
-        # Configure proxy if available (OPTIONAL - cloudscraper should handle Cloudflare without proxy)
-        # Only set PROXY_URL if you need additional proxy protection
-        if config.PROXY_URL and config.PROXY_URL.strip():
-            # PROXY_URL format: username:password@host:port or host:port
-            # Add http:// prefix if not already present
-            if config.PROXY_URL.startswith(('http://', 'https://')):
-                proxy_url = config.PROXY_URL
-            else:
-                proxy_url = f"http://{config.PROXY_URL}"
-            
-            self.session.proxies = {
-                'http': proxy_url,
-                'https': proxy_url
-            }
-            print(f"[RedditScanner] Using proxy for Reddit requests")
-        else:
-            print(f"[RedditScanner] No proxy configured - using cloudscraper directly (should bypass Cloudflare)")
-        
         self.processed_comments: Set[str] = set()
         self._load_processed()
     
@@ -154,17 +126,11 @@ class RedditScanner:
                 self._extract_comments(data, comments)
             return comments
             
+        except (requests.ConnectionError, requests.Timeout) as e:
+            print(f"[WARN] Connection issue with {clean_url}: {e.__class__.__name__}")
+            return []
         except Exception as e:
-            error_msg = str(e)
-            # Check if it's a Cloudflare block
-            if 'cloudflare' in error_msg.lower() or 'cf-ray' in error_msg.lower():
-                print(f"[ERROR] Cloudflare block detected for {clean_url}: {error_msg}")
-            elif 'timeout' in error_msg.lower() or 'timed out' in error_msg.lower():
-                print(f"[WARN] Connection timeout with {clean_url}: {error_msg}")
-            elif 'connection' in error_msg.lower():
-                print(f"[WARN] Connection issue with {clean_url}: {error_msg}")
-            else:
-                print(f"[ERROR] Failed to fetch comments from {post_url}: {error_msg}")
+            print(f"[ERROR] Failed to fetch comments from {post_url}: {e}")
             return []
     
     def get_new_comments(self, post_url: str, whitelist: Set[str]) -> List[RedditComment]:
