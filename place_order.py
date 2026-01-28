@@ -6,8 +6,9 @@ from api_client import UpvoteBizAPI
 api = UpvoteBizAPI()
 
 # Target post - clean URL without query params
-post_url = "https://www.reddit.com/r/india/comments/1qechfn/india_among_top_countries_at_risk_of_mass/"
-quantity = 50
+# Target post - clean URL without query params
+post_url = "https://www.reddit.com/r/india/comments/1qjt932/korean_tourist_allegedly_molested_at_bengaluru/"
+quantity = 600
 
 # First, let's see what services are available
 print("=" * 60)
