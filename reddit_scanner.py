@@ -1,16 +1,14 @@
 """
 Reddit Scanner Module
 
-Monitors Reddit posts for new comments using the public JSON API.
-No login required - just appends .json to Reddit URLs.
+Monitors Reddit posts for new comments using PRAW (Official Reddit API).
 """
 
-import requests
 import time
-from typing import List, Dict, Set, Optional
+import praw
+from typing import List, Set, Optional
 from dataclasses import dataclass
 import config
-
 
 @dataclass
 class RedditComment:
@@ -33,27 +31,15 @@ class RedditComment:
 
 
 class RedditScanner:
-    """Scans Reddit posts for new comments"""
+    """Scans Reddit posts for new comments using PRAW"""
     
     def __init__(self):
-        self.session = requests.Session()
-        # Full browser User-Agent to bypass Reddit's datacenter IP blocking
-        self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'application/json, text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'Connection': 'keep-alive',
-        })
-        
-        # Configure proxy if set (for bypassing Reddit's VPS/datacenter IP blocking)
-        if config.PROXY_URL:
-            proxy_url = f"http://{config.PROXY_URL}"
-            self.session.proxies = {
-                'http': proxy_url,
-                'https': proxy_url,
-            }
-            print(f"[INFO] Reddit scanner using proxy: {config.PROXY_URL.split('@')[1] if '@' in config.PROXY_URL else config.PROXY_URL}")
+        # Initialize PRAW
+        self.reddit = praw.Reddit(
+            client_id=config.REDDIT_CLIENT_ID,
+            client_secret=config.REDDIT_CLIENT_SECRET,
+            user_agent=config.REDDIT_USER_AGENT
+        )
         
         self.processed_comments: Set[str] = set()
         self._load_processed()
@@ -76,34 +62,6 @@ class RedditScanner:
         self.processed_comments.add(comment_id)
         self._save_processed()
     
-    def _extract_comments(self, data, comments: List[RedditComment]):
-        """Recursively extract comments from Reddit API response"""
-        if isinstance(data, dict):
-            if data.get('kind') == 't1':  # Comment
-                comment_data = data.get('data', {})
-                comment = RedditComment(
-                    id=comment_data.get('id', ''),
-                    author=comment_data.get('author', '[deleted]'),
-                    body=comment_data.get('body', ''),
-                    permalink=comment_data.get('permalink', ''),
-                    created_utc=comment_data.get('created_utc', 0)
-                )
-                if comment.id and comment.author != '[deleted]':
-                    comments.append(comment)
-                
-                # Check for replies - can be empty string "", None, or a Listing dict
-                replies = comment_data.get('replies')
-                if replies and replies != "" and isinstance(replies, (dict, list)):
-                    self._extract_comments(replies, comments)
-            
-            elif data.get('kind') == 'Listing':
-                for child in data.get('data', {}).get('children', []):
-                    self._extract_comments(child, comments)
-        
-        elif isinstance(data, list):
-            for item in data:
-                self._extract_comments(item, comments)
-    
     def get_comments(self, post_url: str) -> List[RedditComment]:
         """
         Fetch all comments from a Reddit post.
@@ -114,31 +72,37 @@ class RedditScanner:
         Returns:
             List of RedditComment objects
         """
-        # Convert URL to JSON endpoint
-        # Remove trailing slash and query params
-        clean_url = post_url.split('?')[0].rstrip('/')
-        # Use sort=new to get newest comments first (critical for old posts)
-        json_url = f"{clean_url}.json?sort=new"
-        
         try:
-            response = self.session.get(json_url, timeout=30)
-            response.raise_for_status()
-            data = response.json()
+            submission = self.reddit.submission(url=post_url)
+            
+            # We only need the newest comments, and we don't want to burn API limits
+            # expanding the "more comments" forest too aggressively.
+            # limit=0 removes all MoreComments objects, so we only get the initially loaded tree.
+            # To catch "new" comments on a very active thread, this might miss some deep replies
+            # if they are hidden behind 'more', but 'sort=new' isn't directly settable 
+            # on the comment tree fetch in PRAW like it is in JSON AFAIK without extra calls.
+            # However, for monitoring specific posts, usually we traverse what we can.
+            
+            # Use replace_more(limit=0) to remove MoreComments and avoid extra requests
+            submission.comments.replace_more(limit=0)
             
             comments = []
-            # Reddit JSON API returns [post_data, comments_listing]
-            # We need to extract from the comments listing (second element)
-            if isinstance(data, list) and len(data) > 1:
-                comments_data = data[1]  # Second element contains comments
-                self._extract_comments(comments_data, comments)
-            else:
-                # Fallback: try extracting from the entire response
-                self._extract_comments(data, comments)
+            # Flatten the comment tree
+            for comment in submission.comments.list():
+                # Verify it's a valid comment (PRAW objects should be valid)
+                if hasattr(comment, 'author') and comment.author:
+                    comments.append(RedditComment(
+                        id=comment.id,
+                        author=comment.author.name,
+                        body=comment.body,
+                        permalink=comment.permalink,
+                        created_utc=comment.created_utc
+                    ))
+            
+            # Sort by creation time (newest first) to match expectation if needed
+            comments.sort(key=lambda x: x.created_utc, reverse=True)
             return comments
             
-        except (requests.ConnectionError, requests.Timeout) as e:
-            print(f"[WARN] Connection issue with {clean_url}: {e.__class__.__name__}")
-            return []
         except Exception as e:
             print(f"[ERROR] Failed to fetch comments from {post_url}: {e}")
             return []
@@ -166,17 +130,14 @@ class RedditScanner:
         for comment in comments:
             # Skip if already processed
             if comment.id in self.processed_comments:
-                print(f"[DEBUG] Skipped {comment.author} - already processed")
                 continue
             
             # Skip if author is whitelisted
             if comment.author.lower() in whitelist_lower:
-                print(f"[DEBUG] Skipped {comment.author} - whitelisted")
                 continue
             
-            # Skip if comment is too old (>24 hours - API won't work)
+            # Skip if comment is too old (>24 hours) -- optional but good practice
             if comment.age_hours > 24:
-                print(f"[DEBUG] Skipped {comment.author} - too old ({comment.age_hours:.1f}h)")
                 continue
             
             new_comments.append(comment)
@@ -201,16 +162,14 @@ def load_posts_to_monitor() -> List[str]:
     except FileNotFoundError:
         return []
 
-
-# Quick test if run directly
 if __name__ == "__main__":
     print("=" * 60)
-    print("REDDIT SCANNER TEST")
+    print("REDDIT SCANNER TEST (PRAW)")
     print("=" * 60)
     
     scanner = RedditScanner()
     
-    # Test with a sample post (r/test is a good test subreddit)
+    # Test with a sample post
     test_url = "https://www.reddit.com/r/test/comments/1hssrqd/test/"
     
     print(f"\n[1] Fetching comments from test post...")
@@ -227,5 +186,4 @@ if __name__ == "__main__":
     
     if len(comments) > 5:
         print(f"\n    ... and {len(comments) - 5} more comments")
-    
-    print("\n[✓] Reddit scanner working!")
+

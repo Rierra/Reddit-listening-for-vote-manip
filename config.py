@@ -13,6 +13,13 @@ load_dotenv()
 API_URL = "http://upvote.biz/api/v1"
 API_KEY = os.getenv("UPVOTE_API_KEY", "")
 
+# ============================================
+# REDDIT API CONFIGURATION
+# ============================================
+REDDIT_CLIENT_ID = os.getenv("REDDIT_CLIENT_ID")
+REDDIT_CLIENT_SECRET = os.getenv("REDDIT_CLIENT_SECRET")
+REDDIT_USER_AGENT = os.getenv("REDDIT_USER_AGENT", "RedditTelegramMonitor/1.0")
+
 # Proxy configuration (to bypass Cloudflare)
 # Format: username:password@proxy.froxy.com:9000
 PROXY_URL = os.getenv("PROXY_URL", "")
