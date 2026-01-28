@@ -38,7 +38,8 @@ class RedditScanner:
         self.reddit = praw.Reddit(
             client_id=config.REDDIT_CLIENT_ID,
             client_secret=config.REDDIT_CLIENT_SECRET,
-            user_agent=config.REDDIT_USER_AGENT
+            user_agent=config.REDDIT_USER_AGENT,
+            requestor_kwargs={'proxies': {'https': f"http://{config.PROXY_URL}", 'http': f"http://{config.PROXY_URL}"}} if config.PROXY_URL else None
         )
         
         self.processed_comments: Set[str] = set()
